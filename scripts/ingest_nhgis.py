@@ -14,6 +14,99 @@ def parse_nhgis(filepath: str) -> pd.DataFrame:
     df = pd.read_csv(filepath, header=0, skiprows=[1], low_memory=False)
     return df
 
+
+def load_nhgis_codebook(data_dir: str) -> tuple[dict[str, str], set[str]]:
+    """
+    Read the first two rows of each NHGIS CSV in data_dir/raw/nhgis:
+    row 0 = column names (NHGIS codes), row 1 = variable descriptions.
+    Returns (codebook, exclude_set):
+      - codebook: dict mapping each column name to its description (row 2 text).
+      - exclude_set: column names whose description starts with 'Margins of error' (to exclude from Lasso).
+    """
+    raw_nhgis = os.path.join(data_dir, "raw", "nhgis")
+    if not os.path.isdir(raw_nhgis):
+        raw_nhgis = data_dir
+    nhgis_pattern = os.path.join(raw_nhgis, "nhgis*.csv")
+    nhgis_files = sorted(globmod.glob(nhgis_pattern))
+    if not nhgis_files:
+        raise FileNotFoundError(f"No NHGIS files found: {nhgis_pattern}")
+
+    codebook: dict[str, str] = {}
+    exclude_set: set[str] = set()
+    for filepath in nhgis_files:
+        head = pd.read_csv(filepath, header=None, nrows=2, low_memory=False)
+        if head.shape[0] < 2:
+            continue
+        names = head.iloc[0].astype(str).tolist()
+        descs = head.iloc[1].tolist()
+        n = min(len(names), len(descs))
+        for i in range(n):
+            col = names[i]
+            desc = descs[i] if pd.notna(descs[i]) else ""
+            desc_str = str(desc).strip()
+            if col not in codebook:
+                codebook[col] = desc_str
+            if desc_str.lower().startswith("margins of error"):
+                exclude_set.add(col)
+
+    return codebook, exclude_set
+
+
+def load_raw_nhgis_wide(data_dir: str) -> tuple[pd.DataFrame, dict[str, str]]:
+    """
+    Load all raw NHGIS CSVs from data_dir (e.g. data/raw/nhgis), merge on GISJOIN,
+    coerce numeric, build GEOID/COUNTY_GEOID and household-level Multigen_Rate.
+    Excludes columns whose CSV row-2 description starts with 'Margins of error'.
+    Does not modify any source CSV.
+    Returns (df, codebook): wide dataframe for Lasso screening and code -> description map for codebook_table.
+    """
+    codebook, exclude_set = load_nhgis_codebook(data_dir)
+
+    raw_nhgis = os.path.join(data_dir, "raw", "nhgis")
+    if not os.path.isdir(raw_nhgis):
+        raw_nhgis = data_dir
+    nhgis_pattern = os.path.join(raw_nhgis, "nhgis*.csv")
+    nhgis_files = sorted(globmod.glob(nhgis_pattern))
+    if not nhgis_files:
+        raise FileNotFoundError(f"No NHGIS files found: {nhgis_pattern}")
+
+    frames = [parse_nhgis(f) for f in nhgis_files]
+    ns = frames[0]
+    for extra in frames[1:]:
+        new_cols = [c for c in extra.columns if c not in ns.columns]
+        merge_keys = ["GISJOIN"] if "GISJOIN" in extra.columns else [ns.columns[0]]
+        ns = ns.merge(extra[merge_keys + new_cols], on=merge_keys, how="outer")
+
+    # Drop columns described as "Margins of error" so they are not used in Lasso
+    cols_to_drop = [c for c in ns.columns if c in exclude_set]
+    ns = ns.drop(columns=cols_to_drop, errors="ignore")
+
+    geo_id_cols = {
+        "GISJOIN", "YEAR", "STUSAB", "STATE", "COUNTY", "GEO_ID", "TL_GEO_ID",
+        "NAME_E", "NAME_M", "REGIONA", "DIVISIONA", "STATEA", "COUNTYA", "TRACTA",
+        "BLKGRPA", "COUSUBA", "PLACEA", "CONCITA", "AIANHHA", "RES_ONLYA", "TRUSTA",
+        "AIHHTLI", "AITSA", "ANRCA", "CBSAA", "CSAA", "METDIVA", "UAA", "CDCURRA",
+        "SLDUA", "SLDLA", "ZCTA5A", "SUBMCDA", "SDELMA", "SDSECA", "SDUNIA",
+        "PCI", "PUMAA", "BTTRA", "BTBGA",
+    }
+    for col in ns.columns:
+        if col not in geo_id_cols:
+            ns[col] = pd.to_numeric(ns[col], errors="coerce")
+
+    ns["STATEA"] = ns["STATEA"].astype(str).str.zfill(2) if "STATEA" in ns.columns else ""
+    ns["COUNTYA"] = ns["COUNTYA"].astype(str).str.zfill(3) if "COUNTYA" in ns.columns else ""
+    ns["TRACTA"] = ns["TRACTA"].astype(str).str.zfill(6) if "TRACTA" in ns.columns else ""
+    ns["GEOID"] = ns["STATEA"] + ns["COUNTYA"] + ns["TRACTA"]
+    if "STATEA" in ns.columns and "COUNTYA" in ns.columns:
+        ns["COUNTY_GEOID"] = ns["STATEA"] + ns["COUNTYA"]
+
+    if "AU46E001" in ns.columns and "AU46E002" in ns.columns:
+        total_hh = ns["AU46E001"].replace(0, np.nan)
+        ns["Multigen_Rate"] = (ns["AU46E002"] / total_hh) * 100
+
+    return ns, codebook
+
+
 def build_analysis_ready_nhgis(
     data_dir: str,
     sld_filename: str = "SmartLocationDatabase.csv",
@@ -64,18 +157,19 @@ def build_analysis_ready_nhgis(
     ns["COUNTYA"] = ns["COUNTYA"].astype(str).str.zfill(3) if "COUNTYA" in ns.columns else ""
     ns["TRACTA"] = ns["TRACTA"].astype(str).str.zfill(6) if "TRACTA" in ns.columns else ""
     ns["GEOID"] = ns["STATEA"] + ns["COUNTYA"] + ns["TRACTA"]
+    # County GEOID for regional fixed effects and clustered standard errors
+    if "STATEA" in ns.columns and "COUNTYA" in ns.columns:
+        ns["COUNTY_GEOID"] = ns["STATEA"] + ns["COUNTYA"]
     if "NAME_E" in ns.columns:
         ns["Area_Name"] = ns["NAME_E"]
 
     pop_total = ns["AUOVE001"].replace(0, np.nan) if "AUOVE001" in ns.columns else pd.Series(1, index=ns.index)
 
-    if "AU46E001" in ns.columns:
-        hh_pop_total = ns["AU46E001"].replace(0, np.nan)
-        ns["_total_hh"] = ns["AU46E003"]
-        ns["_multigen_persons"] = (
-            ns["AU46E018"] + ns["AU46E020"] + ns["AU46E021"] + ns["AU46E022"] + ns["AU46E023"]
-        )
-        ns["Multigen_Rate"] = ns["_multigen_persons"] / hh_pop_total * 100
+    # Causal target: Table B11017 household-level multigen % (AU46E002 / AU46E001 * 100)
+    if "AU46E001" in ns.columns and "AU46E002" in ns.columns:
+        total_hh = ns["AU46E001"].replace(0, np.nan)
+        ns["Multigen_Rate"] = (ns["AU46E002"] / total_hh) * 100
+        ns["_total_hh"] = ns["AU46E001"]
 
     if "AUOVE023" in ns.columns:
         ns["Pct_65Plus"] = (
@@ -108,6 +202,14 @@ def build_analysis_ready_nhgis(
         ns["Pct_SingleFamily"] = (ns["AUVLE002"] + ns["AUVLE003"]) / st * 100
         ns["Pct_5PlusUnits"] = (ns["AUVLE006"] + ns["AUVLE007"] + ns["AUVLE008"] + ns["AUVLE009"]) / st * 100
         ns["Pct_MobileHome"] = ns["AUVLE010"] / st * 100
+    # Supply-side: vacancy rate (AUVUE003 + AUVUE005) / AUVUE001 * 100
+    if "AUVUE001" in ns.columns:
+        vu = ns["AUVUE001"].replace(0, np.nan)
+        ns["Vacancy_Rate"] = (ns["AUVUE003"].fillna(0) + ns["AUVUE005"].fillna(0)) / vu * 100
+    # Supply-side: % units with 4+ bedrooms (AUVRE006 + AUVRE007) / AUVRE001 * 100
+    if "AUVRE001" in ns.columns:
+        vr = ns["AUVRE001"].replace(0, np.nan)
+        ns["Pct_LargeUnits"] = (ns["AUVRE006"].fillna(0) + ns["AUVRE007"].fillna(0)) / vr * 100
     if "AUVPE001" in ns.columns:
         ns["Median_Year_Built"] = ns["AUVPE001"]
     if "AUUEE001" in ns.columns:
@@ -116,7 +218,10 @@ def build_analysis_ready_nhgis(
         ns["Avg_HH_Size"] = ns["AUUGE001"]
     if "AUP1E001" in ns.columns:
         ht = ns["AUP1E001"].replace(0, np.nan)
-        ns["Pct_FamilyHH"] = ns["AUP1E002"] / ht * 100
+        # Feature decomposition: Non-multigen family HH = (Total Family HH - Multigen HH) / Total HH
+        if "AU46E002" in ns.columns:
+            ns["Pct_NonMultigen_FamilyHH"] = ((ns["AUP1E002"] - ns["AU46E002"]) / ht) * 100
+        # Keep these as independent structural anchors
         ns["Pct_MarriedCouple"] = ns["AUP1E003"] / ht * 100
         ns["Pct_LivingAlone"] = ns["AUP1E008"] / ht * 100
     if "AUQNE001" in ns.columns:

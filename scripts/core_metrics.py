@@ -16,20 +16,23 @@ from sklearn.impute import SimpleImputer
 from typing import Optional
 
 # ── Standardized schema for analysis-ready data (unified across AHS, ASEC, NHGIS) ──
+# ── Standardized schema for analysis-ready data (unified across AHS, ASEC, NHGIS) ──
 ANALYSIS_READY_SCHEMA = {
-    "id_cols": ["GEOID", "Area_Name"],  # or household id for AHS/ASEC
+    "id_cols": ["GEOID", "Area_Name", "COUNTY_GEOID", "STATEA"],  # Added for regional clustering/fixed effects
     "target_col": "Multigen_Rate",
-    "weight_col": "_total_hh",  # optional; use None if not available
+    "weight_col": "_total_hh",  
     "feature_cols": [
         "Pct_65Plus", "Pct_Under18", "Pct_Hispanic", "Pct_Asian_NH", "Pct_Black_NH",
         "Pct_ForeignBorn", "Median_HH_Income", "Poverty_Rate", "Gini_Index", "Pct_SNAP",
-        "Pct_SingleFamily", "Pct_5PlusUnits", "Pct_MobileHome", "Median_Year_Built",
+        "Pct_SingleFamily", "Pct_5PlusUnits", "Pct_MobileHome", "Vacancy_Rate", "Pct_LargeUnits",
+        "Median_Year_Built",
         "Pct_Owner", "Avg_HH_Size", "Pct_HighRent", "Pct_HighOwnerCost",
-        "Pct_FamilyHH", "Pct_MarriedCouple", "Pct_LivingAlone", "Pct_HH_With_Children",
+        "Pct_NonMultigen_FamilyHH", "Pct_MarriedCouple", "Pct_LivingAlone", "Pct_HH_With_Children",
         "Pct_BachelorPlus", "Pct_LessThanHS",
         "Pct_PublicTransit", "Pct_WorkFromHome", "Pct_NoVehicle",
         "NatWalkInd", "TransitFreq", "StreetDensity",
         "Pct_LimitedEnglish", "Pct_SameHouse1YrAgo", "Pct_NotInLaborForce", "Pct_Uninsured",
+        "Lasso_1", "Lasso_2", "Lasso_3",  # Top 3 from run_lasso_feature_selection; replace with NHGIS codes from output/lasso_feature_shortlist.csv
     ],
 }
 
@@ -47,12 +50,14 @@ FEATURE_LABELS = {
     "Pct_SingleFamily": "% Single-Family Homes",
     "Pct_5PlusUnits": "% 5+ Unit Buildings",
     "Pct_MobileHome": "% Mobile Homes",
+    "Vacancy_Rate": "Housing Vacancy Rate (%)",
+    "Pct_LargeUnits": "% Units with 4+ Bedrooms",
     "Median_Year_Built": "Median Year Structure Built",
     "Pct_Owner": "% Owner-Occupied",
     "Avg_HH_Size": "Average Household Size",
     "Pct_HighRent": "% High Rent ($1500+/mo)",
     "Pct_HighOwnerCost": "% High Owner Costs",
-    "Pct_FamilyHH": "% Family Households",
+    "Pct_NonMultigen_FamilyHH": "% Non-Multigen Family HH (Purified)",
     "Pct_MarriedCouple": "% Married-Couple HH",
     "Pct_LivingAlone": "% Living Alone",
     "Pct_HH_With_Children": "% HH with Children Under 18",
@@ -68,6 +73,9 @@ FEATURE_LABELS = {
     "Pct_SameHouse1YrAgo": "% Same House 1 Year Ago",
     "Pct_NotInLaborForce": "% Not in Labor Force",
     "Pct_Uninsured": "% Uninsured",
+    "Lasso_1": "Lasso discovery 1 (replace with top-3 NHGIS code from shortlist)",
+    "Lasso_2": "Lasso discovery 2 (replace with top-3 NHGIS code from shortlist)",
+    "Lasso_3": "Lasso discovery 3 (replace with top-3 NHGIS code from shortlist)",
 }
 
 
@@ -161,26 +169,41 @@ def run_ols_pipeline(
     feature_cols: Optional[list[str]] = None,
 ) -> dict:
     """
-    Run OLS (baseline + HC3), WLS (if weight_col present), log-level, and diagnostics.
-    Returns dict with keys: ols_model, ols_robust, wls_model (or None), ols_log,
-    coef_table, beta_table, diagnostics (bp, white, jb, reset), final_features, feature_labels.
+    Run OLS with diagnostics and County-Clustered Robust Standard Errors.
     """
-    work, final_features, _ = prepare_analysis_df(df, target_col=target_col, weight_col=weight_col, feature_cols=feature_cols)
+    work, final_features, _ = prepare_analysis_df(
+        df, target_col=target_col, weight_col=weight_col, feature_cols=feature_cols
+    )
     y = work[target_col]
     X = sm.add_constant(work[final_features])
 
+    # County-clustered SEs when COUNTY_GEOID present (addresses spatial dependency)
+    use_cluster = (
+        "COUNTY_GEOID" in work.columns
+        and work["COUNTY_GEOID"].notna().all()
+        and work["COUNTY_GEOID"].astype(str).str.len().gt(0).all()
+    )
+    cov_spec = (
+        {"cov_type": "cluster", "cov_kwds": {"groups": work["COUNTY_GEOID"]}}
+        if use_cluster
+        else {"cov_type": "HC3"}
+    )
+
+    # 1. Baseline Models
     ols_model = sm.OLS(y, X).fit()
-    ols_robust = sm.OLS(y, X).fit(cov_type="HC3")
+
+    # 2. County-Clustered (or HC3) Robust Model
+    ols_robust = sm.OLS(y, X).fit(**cov_spec)
 
     wls_model = None
     if weight_col and weight_col in work.columns:
         weights = work[weight_col].clip(lower=1)
-        wls_model = sm.WLS(y, X, weights=weights).fit(cov_type="HC3")
+        wls_model = sm.WLS(y, X, weights=weights).fit(**cov_spec)
 
     y_log = np.log(y + 0.01)
-    ols_log = sm.OLS(y_log, X).fit(cov_type="HC3")
+    ols_log = sm.OLS(y_log, X).fit(**cov_spec)
 
-    # Diagnostics
+    # ... Diagnostics (Same as before) ...
     resid = ols_model.resid
     bp_lm, bp_pval, _, _ = het_breuschpagan(resid, X)
     rng = np.random.RandomState(42)
@@ -190,23 +213,19 @@ def run_ols_pipeline(
     except Exception:
         wh_lm, wh_pval = np.nan, np.nan
     jb_stat, jb_pval, jb_skew, jb_kurtosis = jarque_bera(resid)
-    reset_fstat, reset_pval = np.nan, np.nan
-    try:
-        from statsmodels.stats.diagnostic import linear_reset
-        reset_test = linear_reset(ols_model, power=3, use_f=True)
-        reset_fstat, reset_pval = reset_test.fvalue, reset_test.pvalue
-    except Exception:
-        from scipy.stats import f as f_dist
-        y_hat = ols_model.fittedvalues
-        X_reset = X.copy()
-        X_reset["y_hat_sq"] = y_hat ** 2
-        X_reset["y_hat_cu"] = y_hat ** 3
-        reset_model = sm.OLS(y, X_reset).fit()
-        r_unres, r_res = reset_model.rsquared, ols_model.rsquared
-        k_unres, k_res = reset_model.df_model, ols_model.df_model
-        n = len(y)
-        reset_fstat = ((r_unres - r_res) / (k_unres - k_res)) / ((1 - r_unres) / (n - k_unres - 1))
-        reset_pval = 1 - f_dist.cdf(reset_fstat, k_unres - k_res, n - k_unres - 1)
+    
+    # Standard Reset Test logic
+    from scipy.stats import f as f_dist
+    y_hat = ols_model.fittedvalues
+    X_reset = X.copy()
+    X_reset["y_hat_sq"] = y_hat ** 2
+    X_reset["y_hat_cu"] = y_hat ** 3
+    reset_model = sm.OLS(y, X_reset).fit()
+    r_unres, r_res = reset_model.rsquared, ols_model.rsquared
+    k_unres, k_res = reset_model.df_model, ols_model.df_model
+    n = len(y)
+    reset_fstat = ((r_unres - r_res) / (k_unres - k_res)) / ((1 - r_unres) / (n - k_unres - 1))
+    reset_pval = 1 - f_dist.cdf(reset_fstat, k_unres - k_res, n - k_unres - 1)
 
     labels = {f: FEATURE_LABELS.get(f, f) for f in final_features}
 
@@ -231,7 +250,7 @@ def run_ols_pipeline(
     X_std = (work[final_features] - work[final_features].mean()) / work[final_features].std()
     y_std = (y - y.mean()) / y.std()
     X_std_c = sm.add_constant(X_std)
-    beta_model = sm.OLS(y_std, X_std_c).fit(cov_type="HC3")
+    beta_model = sm.OLS(y_std, X_std_c).fit(**cov_spec)
     beta_table = pd.DataFrame({
         "Feature": final_features,
         "Label": [labels.get(f, f) for f in final_features],
