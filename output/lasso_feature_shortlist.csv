@@ -1,31 +1,31 @@
 nhgis_code,standardized_coef,abs_coef,codebook_table
-AU46E026,-7.612891926778043,7.612891926778043,B11017 — Household type (incl. multigenerational)
-AVA1E001,1.9725482344890797,1.9725482344890797,B19083 — Gini index
-AUOVE007,1.5604458428069499,1.5604458428069499,B01001 — Sex by age
-AU46E002,1.171220984844692,1.171220984844692,B11017 — Household type (incl. multigenerational)
-AUOVM007,-0.9811486644327527,0.9811486644327527,— (see NHGIS codebook)
-AUVGE001,0.8667821724857224,0.8667821724857224,— (see NHGIS codebook)
-AURNE008,-0.7708945516151395,0.7708945516151395,— (see NHGIS codebook)
-AUPWM019,-0.72102615454938,0.72102615454938,— (see NHGIS codebook)
-AUPWE019,0.6832562521065654,0.6832562521065654,B08301 — Commute
-AUOVE031,0.6573798619924246,0.6573798619924246,B01001 — Sex by age
-AUWSE001,0.6258248738171649,0.6258248738171649,— (see NHGIS codebook)
-AUOVM031,-0.567772270624177,0.567772270624177,— (see NHGIS codebook)
-AURUE001,0.5452648035551335,0.5452648035551335,B19013 — Median household income
-AUQRE002,-0.4306903976515029,0.4306903976515029,— (see NHGIS codebook)
-AURVE001,0.4302179720666277,0.4302179720666277,— (see NHGIS codebook)
-AUQNE012,0.3896537823803487,0.3896537823803487,B11005 — Households with under-18
-AUOWE003,-0.3507425081931495,0.3507425081931495,— (see NHGIS codebook)
-AUPHE007,0.29909034207923924,0.29909034207923924,B07001 — Geographic mobility
-AVH7E010,-0.2901229375644346,0.2901229375644346,B27001 — Health insurance
-AUOVE008,0.2746074499984082,0.2746074499984082,B01001 — Sex by age
-AURRM020,0.24041478674242023,0.24041478674242023,— (see NHGIS codebook)
-AUOVE009,0.21790265317140023,0.21790265317140023,B01001 — Sex by age
-AVH7E009,-0.20085880602557618,0.20085880602557618,B27001 — Health insurance
-AU46E009,0.19069352898875402,0.19069352898875402,B11017 — Household type (incl. multigenerational)
-AUWHM001,0.18269104529406396,0.18269104529406396,— (see NHGIS codebook)
-AUOVE032,-0.18102044802235728,0.18102044802235728,B01001 — Sex by age
-AUW5E001,-0.16122395323216876,0.16122395323216876,— (see NHGIS codebook)
-AUOVE033,-0.13743676954416226,0.13743676954416226,B01001 — Sex by age
-AURVM001,0.11770732934558525,0.11770732934558525,— (see NHGIS codebook)
-AU46E014,0.11402708333332831,0.11402708333332831,B11017 — Household type (incl. multigenerational)
+AUP1E004,-0.11343588778189838,0.11343588778189838,Estimates: Family households: Other family
+AUQRE011,0.07451849640164782,0.07451849640164782,"Estimates: Female householder, no spouse or partner present: With relatives, no children of the householder under 18 years"
+AURRE029,0.06493952564627095,0.06493952564627095,"Estimates: Income in the past 12 months at or above poverty level: In family households: In other families: Female householder, no spouse present: All relatives"
+AURRE007,0.0597422455535137,0.0597422455535137,Estimates: Income in the past 12 months below poverty level: In family households: In other families
+AURRE026,0.0394077569991984,0.0394077569991984,"Estimates: Income in the past 12 months at or above poverty level: In family households: In other families: Male householder, no spouse present: All relatives"
+AUQRE016,0.03677786697092005,0.03677786697092005,"Estimates: Male householder, no spouse or partner present: With relatives, no children of the householder under 18 years"
+AUQTE009,-0.03390561016192745,0.03390561016192745,Estimates: Nonfamily households
+AUPFE003,-0.03221618247849772,0.03221618247849772,Estimates: Not Hispanic or Latino: White alone
+AURRE024,0.03027484502329795,0.03027484502329795,Estimates: Income in the past 12 months at or above poverty level: In family households: In other families
+AUQNE014,-0.027673001299554023,0.027673001299554023,Estimates: Households with no people under 18 years: Family households: Other family
+AUU0E001,0.02697728480136598,0.02697728480136598,Estimates: Total
+AUTPE007,-0.02678568390216876,0.02678568390216876,Estimates: Household did not receive Food Stamps/SNAP in the past 12 months: Households with no persons with a disability
+AUUPE002,0.023514471443783776,0.023514471443783776,Estimates: Householder who is White alone
+AUQNE016,-0.021863999081144052,0.021863999081144052,"Estimates: Households with no people under 18 years: Family households: Other family: Female householder, no spouse present"
+AUSYE001,-0.02053803222589156,0.02053803222589156,Estimates: Per capita income in the past 12 months (in 2024 inflation-adjusted dollars)
+AUQTE003,-0.01964771113936675,0.01964771113936675,Estimates: Family households: 2-person household
+AUUPE007,-0.01828315976148358,0.01828315976148358,Estimates: Householder who is Some other race alone
+AUUNE001,-0.017546642692298026,0.017546642692298026,Estimates: Total
+AUQTE008,0.01726647750410867,0.01726647750410867,Estimates: Family households: 7-or-more person household
+AU40E030,0.01665470465375903,0.01665470465375903,Estimates: 4-or-more-person household: 4 or more vehicles available
+AUU0E002,0.016248172823673072,0.016248172823673072,Estimates: Owner occupied
+AUO7E007,0.016120757176507558,0.016120757176507558,Estimates: Some Other Race alone
+AURRE032,0.012819537256505757,0.012819537256505757,Estimates: Income in the past 12 months at or above poverty level: In non-family households and other living arrangement: Householder
+AU08E005,0.01276988498671311,0.01276988498671311,Estimates: U.S. citizen by naturalization
+AVAFE001,-0.012568811778965933,0.012568811778965933,Estimates: Median household income in the past 12 months (in 2024 inflation-adjusted dollars)
+AUO7E002,-0.011747289383600222,0.011747289383600222,Estimates: White alone
+AUUNE002,-0.011483085339566823,0.011483085339566823,Estimates: Owner occupied
+AU40E025,-0.011159056319756664,0.011159056319756664,Estimates: 4-or-more-person household
+AUQTE007,0.010834521183373982,0.010834521183373982,Estimates: Family households: 6-person household
+AUQNE005,-0.010603516960282833,0.010603516960282833,Estimates: Households with one or more people under 18 years: Family households: Other family

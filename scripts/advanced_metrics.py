@@ -53,6 +53,13 @@ NHGIS_CODEBOOK = {
     "AVH7": "B27001 — Health insurance",
 }
 
+# Exclude target constituents and entire B09019 (AU46) from Lasso so discovery finds external drivers
+LASSO_EXCLUDE_TARGET_CONSTITUENTS = {
+    "AU46E003",  # denominator (householders)
+    "AU46E018", "AU46E019", "AU46E020", "AU46E021", "AU46E022", "AU46E023",  # kinship numerator
+}
+LASSO_EXCLUDE_TABLE_PREFIX = "AU46"  # B09019 household structure — exclude full table to avoid tautology
+
 
 def _nhgis_table_for_code(code: str) -> str:
     """Map NHGIS code (e.g. AU46E002) to codebook table description."""
@@ -78,8 +85,10 @@ def run_lasso_feature_selection(
     """
     Lasso-based discovery of high-impact omitted variables from raw NHGIS columns.
     Reads only from data_dir (e.g. data/raw/nhgis); never modifies source CSVs.
-    Steps: load raw wide data → correlation filter (top 100) → LassoCV (standardized)
-    → shortlist top 30 non-zero coefficients → write output_path.
+    Excludes target constituents (AU46E003, AU46E018–023) and the entire AU46 (B09019)
+    table so discovery finds external drivers (e.g. B25014, B25070, B19013), not kinship proxies.
+    Steps: load raw wide data → exclude AU46/target constituents → correlation filter (top 100)
+    → LassoCV (standardized) → shortlist top 30 non-zero coefficients → write output_path.
     """
     from ingest_nhgis import load_raw_nhgis_wide
 
@@ -97,9 +106,17 @@ def run_lasso_feature_selection(
         raise ValueError(f"Target {target_col} not in raw data. Ensure extended_fam_hh_rate is present (AU46E003 + kinship cols AU46E018–AU46E023).")
     df = df.dropna(subset=[target_col]).copy()
 
+    # Exclude target, geo ids, and B09019 (AU46) so Lasso finds external drivers (e.g. B25014, B25070, B19013)
+    def _excluded_from_lasso(col: str) -> bool:
+        if col in LASSO_EXCLUDE_TARGET_CONSTITUENTS or col == target_col:
+            return True
+        if col.startswith(LASSO_EXCLUDE_TABLE_PREFIX):
+            return True
+        return False
+
     candidate_cols = [
         c for c in df.columns
-        if c not in geo_id_cols and c != target_col
+        if c not in geo_id_cols and not _excluded_from_lasso(c)
         and df[c].dtype in (np.floating, np.integer, "int64", "float64")
     ]
     # Drop columns that are all NaN or zero variance
