@@ -68,7 +68,7 @@ def _nhgis_table_for_code(code: str) -> str:
 def run_lasso_feature_selection(
     data_dir: str,
     output_path: str = "output/lasso_feature_shortlist.csv",
-    target_col: str = "Multigen_Rate",
+    target_col: str = "extended_fam_hh_rate",
     top_corr_n: int = 100,
     top_nonzero_n: int = 30,
     n_alphas: int = 100,
@@ -94,7 +94,7 @@ def run_lasso_feature_selection(
 
     df, codebook = load_raw_nhgis_wide(data_dir)
     if target_col not in df.columns:
-        raise ValueError(f"Target {target_col} not in raw data. Ensure AU46E001/AU46E002 are present.")
+        raise ValueError(f"Target {target_col} not in raw data. Ensure extended_fam_hh_rate is present (AU46E003 + kinship cols AU46E018–AU46E023).")
     df = df.dropna(subset=[target_col]).copy()
 
     candidate_cols = [
@@ -300,7 +300,7 @@ def run_spatial_diagnostics(
 
 def run_quantile_pipeline(
     df: pd.DataFrame,
-    target_col: str = "Multigen_Rate",
+    target_col: str = "extended_fam_hh_rate",
     feature_cols: Optional[list[str]] = None,
     quantiles: list[float] = [0.1, 0.5, 0.9]
 ) -> dict:
@@ -326,7 +326,7 @@ def run_quantile_pipeline(
 
 def run_xgboost_shap_pipeline(
     df: pd.DataFrame,
-    target_col: str = "Multigen_Rate",
+    target_col: str = "extended_fam_hh_rate",
     feature_cols: Optional[list[str]] = None,
 ) -> dict:
     """
@@ -362,7 +362,7 @@ def run_xgboost_shap_pipeline(
 
 def run_gam_pipeline(
     df: pd.DataFrame,
-    target_col: str = "Multigen_Rate",
+    target_col: str = "extended_fam_hh_rate",
     feature_cols: Optional[list[str]] = None,
     n_splines: int = 10
 ) -> dict:

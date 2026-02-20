@@ -14,6 +14,10 @@ CENTROID_COLS = ["Latitude", "Longitude"]
 # Extra TIGER attributes to include in merged data for Lasso and OLS (tract geography/size)
 TIGER_EXTRA_COLS = ["Tract_ALAND", "Tract_AWATER", "Tract_Shape_Area", "Tract_Shape_Leng"]
 
+# Extended family target (B09019): person-level kinship counts to sum; denominator = householders (occupied HH)
+EXTENDED_FAM_KINSHIP_COLS = ["AU46E018", "AU46E019", "AU46E020", "AU46E021", "AU46E022", "AU46E023"]  # Grandchild, Sibling, Parent, Parent-in-law, Son/Daughter-in-law, Other relatives
+EXTENDED_FAM_DENOM_COL = "AU46E003"  # In households: Householder (occupied households)
+
 # Smart Location Database: variables to keep when joining to tract-level (GEOID) for Lasso
 SLD_KEEP_COLS = [
     "CBSA", "CBSA_POP", "CBSA_EMP", "CBSA_WRK", "Ac_Total", "TotPop", "CountHU", "HH", "P_WrkAge",
@@ -292,7 +296,7 @@ def load_nhgis_codebook(data_dir: str) -> tuple[dict[str, str], set[str]]:
 def load_raw_nhgis_wide(data_dir: str) -> tuple[pd.DataFrame, dict[str, str]]:
     """
     Load all raw NHGIS CSVs from data_dir (e.g. data/raw/nhgis), merge on GISJOIN,
-    coerce numeric, build GEOID/COUNTY_GEOID and household-level Multigen_Rate.
+    coerce numeric, build GEOID/COUNTY_GEOID and target extended_fam_hh_rate (relatives per HH).
     Excludes columns whose CSV row-2 description starts with 'Margins of error'.
     Does not modify any source CSV.
     Returns (df, codebook): wide dataframe for Lasso screening and code -> description map for codebook_table.
@@ -355,9 +359,14 @@ def load_raw_nhgis_wide(data_dir: str) -> tuple[pd.DataFrame, dict[str, str]]:
         n_sld = ns[sld_cols[0]].notna().sum() if sld_cols else 0
         print(f"SLD join: {n_sld:,} / {len(ns):,} tracts with at least one SLD variable")
 
-    if "AU46E001" in ns.columns and "AU46E002" in ns.columns:
-        total_hh = ns["AU46E001"].replace(0, np.nan)
-        ns["Multigen_Rate"] = (ns["AU46E002"] / total_hh) * 100
+    # Target: extended_fam_hh_rate = (sum of non-nuclear relatives) / householders (decimal, relatives per HH)
+    if EXTENDED_FAM_DENOM_COL in ns.columns:
+        denom = ns[EXTENDED_FAM_DENOM_COL].replace(0, np.nan)
+        num_cols = [c for c in EXTENDED_FAM_KINSHIP_COLS if c in ns.columns]
+        if num_cols:
+            ns["extended_fam_hh_rate"] = ns[num_cols].sum(axis=1) / denom
+        else:
+            ns["extended_fam_hh_rate"] = np.nan
 
     return ns, codebook
 
@@ -436,11 +445,15 @@ def build_analysis_ready_nhgis(
 
     pop_total = ns["AUOVE001"].replace(0, np.nan) if "AUOVE001" in ns.columns else pd.Series(1, index=ns.index)
 
-    # Causal target: Table B11017 household-level multigen % (AU46E002 / AU46E001 * 100)
-    if "AU46E001" in ns.columns and "AU46E002" in ns.columns:
-        total_hh = ns["AU46E001"].replace(0, np.nan)
-        ns["Multigen_Rate"] = (ns["AU46E002"] / total_hh) * 100
-        ns["_total_hh"] = ns["AU46E001"]
+    # Target: extended_fam_hh_rate = (sum of non-nuclear relatives) / householders (decimal, relatives per HH)
+    if EXTENDED_FAM_DENOM_COL in ns.columns:
+        denom = ns[EXTENDED_FAM_DENOM_COL].replace(0, np.nan)
+        num_cols = [c for c in EXTENDED_FAM_KINSHIP_COLS if c in ns.columns]
+        if num_cols:
+            ns["extended_fam_hh_rate"] = ns[num_cols].sum(axis=1) / denom
+        else:
+            ns["extended_fam_hh_rate"] = np.nan
+        ns["_total_hh"] = ns[EXTENDED_FAM_DENOM_COL]
 
     # Lasso discovery: Sex by Age (B01001) cell 7 — share of population
     if "AUOVE001" in ns.columns and "AUOVE007" in ns.columns:

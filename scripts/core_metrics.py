@@ -19,7 +19,7 @@ from typing import Optional
 # ── Standardized schema for analysis-ready data (unified across AHS, ASEC, NHGIS) ──
 ANALYSIS_READY_SCHEMA = {
     "id_cols": ["GEOID", "Area_Name", "COUNTY_GEOID", "STATEA"],  # Added for regional clustering/fixed effects
-    "target_col": "Multigen_Rate",
+    "target_col": "extended_fam_hh_rate",
     "weight_col": "_total_hh",  
     "feature_cols": [
         "Pct_65Plus", "Pct_Under18", "Pct_Hispanic", "Pct_Asian_NH", "Pct_Black_NH",
@@ -80,6 +80,7 @@ FEATURE_LABELS = {
     "Tract_AWATER": "Tract Water Area (sq m)",
     "Tract_Shape_Area": "Tract Shape Area",
     "Tract_Shape_Leng": "Tract Shape Perimeter",
+    "extended_fam_hh_rate": "Households w Extended Family (relatives per HH)",
 }
 
 
@@ -104,7 +105,7 @@ def get_available_features(df: pd.DataFrame, candidate_cols: Optional[list[str]]
 
 def prepare_analysis_df(
     df: pd.DataFrame,
-    target_col: str = "Multigen_Rate",
+    target_col: str = "extended_fam_hh_rate",
     weight_col: Optional[str] = "_total_hh",
     feature_cols: Optional[list[str]] = None,
     corr_threshold: float = 0.80,
@@ -172,7 +173,7 @@ def prepare_analysis_df(
 
 def run_ols_pipeline(
     df: pd.DataFrame,
-    target_col: str = "Multigen_Rate",
+    target_col: str = "extended_fam_hh_rate",
     weight_col: Optional[str] = "_total_hh",
     feature_cols: Optional[list[str]] = None,
 ) -> dict:
@@ -315,27 +316,27 @@ def interpret_effect(
     if is_income:
         change_amt = abs_coef * 10000
         rel_pct = (change_amt / mean_target) * 100
-        lines.append(f"    A $10,000 increase in median household income is associated with a {change_amt:.2f} pp {direction} multigenerational rate (absolute), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.1f}%.")
+        lines.append(f"    A $10,000 increase in median household income is associated with a {change_amt:.3f} units {direction} extended family rate (relatives per HH), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.3f}.")
     elif is_gini:
         change_amt = abs_coef * 0.10
         rel_pct = (change_amt / mean_target) * 100
-        lines.append(f"    A 0.10-point increase in the Gini index is associated with a {change_amt:.2f} pp {direction} multigenerational rate (absolute), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.1f}%.")
+        lines.append(f"    A 0.10-point increase in the Gini index is associated with a {change_amt:.3f} units {direction} extended family rate (relatives per HH), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.3f}.")
     elif is_year:
         change_amt = abs_coef * 10
         rel_pct = (change_amt / mean_target) * 100
-        lines.append(f"    A 10-year increase in median year built is associated with a {change_amt:.3f} pp {direction} multigenerational rate (absolute), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.1f}%.")
+        lines.append(f"    A 10-year increase in median year built is associated with a {change_amt:.3f} units {direction} extended family rate (relatives per HH), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.3f}.")
     elif is_walkability:
         change_amt = abs_coef * 5
         rel_pct = (change_amt / mean_target) * 100
-        lines.append(f"    A 5-point increase in the EPA Walkability Index is associated with a {change_amt:.2f} pp {direction} multigenerational rate (absolute), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.1f}%.")
+        lines.append(f"    A 5-point increase in the EPA Walkability Index is associated with a {change_amt:.3f} units {direction} extended family rate (relatives per HH), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.3f}.")
     elif is_pct_var:
         change_10 = abs_coef * 10
         rel_pct = (change_10 / mean_target) * 100
-        lines.append(f"    A 10 pp increase in {label.lower()} is associated with a {change_10:.2f} pp {direction} multigenerational rate (absolute), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.1f}%.")
+        lines.append(f"    A 10 pp increase in {label.lower()} is associated with a {change_10:.3f} units {direction} extended family rate (relatives per HH), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.3f}.")
     else:
         change_10 = abs_coef * 10
         rel_pct = (change_10 / mean_target) * 100
-        lines.append(f"    A 10-unit increase in {label.lower()} is associated with a {change_10:.2f} pp {direction} multigenerational rate (absolute), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.1f}%.")
+        lines.append(f"    A 10-unit increase in {label.lower()} is associated with a {change_10:.3f} units {direction} extended family rate (relatives per HH), equivalent to a {rel_sign}{rel_pct:.1f}% relative change from mean {mean_target:.3f}.")
     lines.append(f"    (Standardized effect: beta = {beta:+.3f}.)")
     lines.append("")
     return lines
