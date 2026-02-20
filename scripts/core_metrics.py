@@ -23,7 +23,7 @@ ANALYSIS_READY_SCHEMA = {
     "weight_col": "_total_hh",  
     "feature_cols": [
         "Pct_65Plus", "Pct_Under18", "Pct_Hispanic", "Pct_Asian_NH", "Pct_Black_NH",
-        "Pct_ForeignBorn", "Median_HH_Income", "Poverty_Rate", "Gini_Index", "Pct_SNAP",
+        "Pct_ForeignBorn", "Median_HH_Income", "Poverty_Rate", "Gini_Index", "AVA1E001", "Pct_SNAP",
         "Pct_SingleFamily", "Pct_5PlusUnits", "Pct_MobileHome", "Vacancy_Rate", "Pct_LargeUnits",
         "Median_Year_Built",
         "Pct_Owner", "Avg_HH_Size", "Pct_HighRent", "Pct_HighOwnerCost",
@@ -32,7 +32,8 @@ ANALYSIS_READY_SCHEMA = {
         "Pct_PublicTransit", "Pct_WorkFromHome", "Pct_NoVehicle",
         "NatWalkInd", "TransitFreq", "StreetDensity",
         "Pct_LimitedEnglish", "Pct_SameHouse1YrAgo", "Pct_NotInLaborForce", "Pct_Uninsured",
-        "Lasso_1", "Lasso_2", "Lasso_3",  # Top 3 from run_lasso_feature_selection; replace with NHGIS codes from output/lasso_feature_shortlist.csv
+        "Pct_SexByAge_Cell7",  # Lasso: AUOVE007 (B01001 Sex by Age)
+        "Tract_ALAND", "Tract_AWATER", "Tract_Shape_Area", "Tract_Shape_Leng",  # TIGER tract geography
     ],
 }
 
@@ -46,6 +47,7 @@ FEATURE_LABELS = {
     "Median_HH_Income": "Median Household Income ($)",
     "Poverty_Rate": "Poverty Rate (%)",
     "Gini_Index": "Gini Index (Inequality)",
+    "AVA1E001": "Income Inequality (Gini Index)",
     "Pct_SNAP": "% Households on SNAP",
     "Pct_SingleFamily": "% Single-Family Homes",
     "Pct_5PlusUnits": "% 5+ Unit Buildings",
@@ -73,9 +75,11 @@ FEATURE_LABELS = {
     "Pct_SameHouse1YrAgo": "% Same House 1 Year Ago",
     "Pct_NotInLaborForce": "% Not in Labor Force",
     "Pct_Uninsured": "% Uninsured",
-    "Lasso_1": "Lasso discovery 1 (replace with top-3 NHGIS code from shortlist)",
-    "Lasso_2": "Lasso discovery 2 (replace with top-3 NHGIS code from shortlist)",
-    "Lasso_3": "Lasso discovery 3 (replace with top-3 NHGIS code from shortlist)",
+    "Pct_SexByAge_Cell7": "Sex by Age (B01001 cell 7) %",
+    "Tract_ALAND": "Tract Land Area (sq m)",
+    "Tract_AWATER": "Tract Water Area (sq m)",
+    "Tract_Shape_Area": "Tract Shape Area",
+    "Tract_Shape_Leng": "Tract Shape Perimeter",
 }
 
 
@@ -115,6 +119,10 @@ def prepare_analysis_df(
     keep = [target_col] + id_cols + feature_cols
     if weight_col and weight_col in df.columns:
         keep.append(weight_col)
+    # Preserve coordinate metadata for spatial diagnostics (not used as predictors)
+    for coord in ("Latitude", "Longitude"):
+        if coord in df.columns and coord not in keep:
+            keep.append(coord)
     keep = [c for c in keep if c in df.columns]
     work = df[keep].copy()
 
@@ -182,6 +190,7 @@ def run_ols_pipeline(
         "COUNTY_GEOID" in work.columns
         and work["COUNTY_GEOID"].notna().all()
         and work["COUNTY_GEOID"].astype(str).str.len().gt(0).all()
+        and work["COUNTY_GEOID"].nunique() > 1  # need >1 group for cluster SE
     )
     cov_spec = (
         {"cov_type": "cluster", "cov_kwds": {"groups": work["COUNTY_GEOID"]}}

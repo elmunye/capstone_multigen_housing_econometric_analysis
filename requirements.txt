@@ -8,3 +8,6 @@ scipy>=1.10
 pygam>=0.9.0
 xgboost>=2.0.0
 shap>=0.42.0
+libpysal>=4.9
+esda>=2.5
+dbfread>=2.0.7

@@ -13,7 +13,7 @@ import statsmodels.api as sm
 import xgboost as xgb
 import shap
 from pygam import LinearGAM, s, f
-from typing import Optional
+from typing import Optional, Any
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LassoCV
@@ -146,6 +146,157 @@ def run_lasso_feature_selection(
         "optimal_alpha": lasso.alpha_,
         "output_path": output_path,
     }
+
+
+def run_spatial_diagnostics(
+    df: pd.DataFrame,
+    model_residuals: pd.Series | np.ndarray,
+    k: int = 5,
+    lat_col: Optional[str] = None,
+    lon_col: Optional[str] = None,
+    run_lisa: bool = True,
+) -> dict[str, Any]:
+    """
+    Tract-level spatial diagnostics using the Moran concept: Global Moran's I on OLS
+    residuals and optional LISA (Local Indicators of Spatial Association) for hot spots.
+
+    Uses a sparse K-Nearest Neighbors (KNN) weights matrix (k=5) from tract centroids
+    (Latitude/Longitude) to handle large tract counts without memory issues.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with same row order as model_residuals (e.g. results['work_df'] from
+        run_ols_pipeline). Must contain tract centroid coordinates.
+    model_residuals : pd.Series | np.ndarray
+        OLS residuals from the clustered/robust model (e.g. results['ols_robust'].resid).
+    k : int
+        Number of nearest neighbors for KNN weights (default 5).
+    lat_col, lon_col : str, optional
+        Column names for latitude and longitude. If None, auto-detect: Latitude/Longitude,
+        lat/lon, LAT/LON, latitude/longitude.
+    run_lisa : bool
+        If True, compute Local Moran's I (LISA) for hot-spot identification (default True).
+
+    Returns
+    -------
+    dict
+        success : bool
+            True if spatial diagnostics were computed.
+        moran_i : float
+            Global Moran's I statistic (NaN if skipped).
+        moran_pval : float
+            P-value for Global Moran's I (NaN if skipped).
+        lisa_df : pd.DataFrame | None
+            If run_lisa and success, DataFrame with index, Is, p_sim, and quad (HH/LL/HL/LH).
+        n_obs : int
+            Number of observations used.
+        message : str
+            Error or info message when success is False or for context.
+    """
+    result: dict[str, Any] = {
+        "success": False,
+        "moran_i": np.nan,
+        "moran_pval": np.nan,
+        "lisa_df": None,
+        "n_obs": 0,
+        "message": "",
+    }
+    n = len(model_residuals)
+    if n != len(df):
+        result["message"] = (
+            f"Row count mismatch: df has {len(df)} rows but model_residuals has {n}. "
+            "Pass the same work dataframe used in the model (e.g. results['work_df'])."
+        )
+        return result
+
+    # Detect latitude/longitude columns
+    def _find_coord_cols(frame: pd.DataFrame) -> tuple[str | None, str | None]:
+        candidates = [
+            ("Latitude", "Longitude"),
+            ("lat", "lon"),
+            ("LAT", "LON"),
+            ("latitude", "longitude"),
+        ]
+        for lat, lon in candidates:
+            if lat in frame.columns and lon in frame.columns:
+                return lat, lon
+        return None, None
+
+    lat_name = lat_col
+    lon_name = lon_col
+    if lat_name is None or lon_name is None:
+        lat_name, lon_name = _find_coord_cols(df)
+    if lat_name is None or lon_name is None:
+        result["message"] = (
+            "Latitude/Longitude not found in dataframe. Add tract centroid columns "
+            "(e.g. 'Latitude', 'Longitude') to enable spatial diagnostics. "
+            "You can join centroids from Census TIGER/Line or a tract centroid lookup."
+        )
+        return result
+
+    # Align and drop missing
+    residuals = np.asarray(model_residuals).flatten()
+    lat = pd.to_numeric(df[lat_name], errors="coerce").values
+    lon = pd.to_numeric(df[lon_name], errors="coerce").values
+    valid = np.isfinite(residuals) & np.isfinite(lat) & np.isfinite(lon)
+    if valid.sum() < 10:
+        result["message"] = "Too few valid (lat, lon, residual) observations for spatial weights."
+        return result
+
+    res_clean = residuals[valid]
+    coords = np.column_stack([lat[valid], lon[valid]])
+    n_obs = len(res_clean)
+    result["n_obs"] = n_obs
+
+    try:
+        from libpysal.weights import KNN
+        from esda.moran import Moran, Moran_Local
+    except ImportError as e:
+        result["message"] = (
+            "Spatial diagnostics require libpysal and esda: pip install libpysal esda. "
+            f"Error: {e}"
+        )
+        return result
+
+    # Sparse KNN weights (k=5) from tract centroids
+    try:
+        w = KNN.from_array(coords, k=min(k, n_obs - 1))
+    except Exception as e:
+        result["message"] = f"Failed to build KNN weights: {e}"
+        return result
+
+    # Global Moran's I on residuals
+    try:
+        moran = Moran(res_clean, w)
+        result["moran_i"] = float(moran.I)
+        result["moran_pval"] = float(moran.p_sim)
+        result["success"] = True
+        result["message"] = (
+            f"Global Moran's I = {result['moran_i']:.4f}, p-value = {result['moran_pval']:.4e} "
+            f"(n = {n_obs})."
+        )
+    except Exception as e:
+        result["message"] = f"Global Moran's I failed: {e}"
+        return result
+
+    # Local Moran (LISA) — hot spots of under/over-prediction
+    if run_lisa and result["success"]:
+        try:
+            lisa = Moran_Local(res_clean, w)
+            quad_labels = lisa.q  # 1=HH, 2=LH, 3=LL, 4=HL
+            quad_map = {1: "HH", 2: "LH", 3: "LL", 4: "HL"}
+            lisa_df = pd.DataFrame({
+                "I_local": lisa.Is,
+                "p_sim": lisa.p_sim,
+                "quad": [quad_map.get(int(q), "?") for q in quad_labels],
+            }, index=np.where(valid)[0])
+            result["lisa_df"] = lisa_df
+        except Exception:
+            result["lisa_df"] = None
+
+    return result
+
 
 def run_quantile_pipeline(
     df: pd.DataFrame,
